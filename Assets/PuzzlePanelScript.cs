@@ -8,6 +8,7 @@ using Rnd = UnityEngine.Random;
 
 public class PuzzlePanelScript : MonoBehaviour
 {
+    const int STAGE_1_FLIPS = 3, STAGE_2_FLIPS = 4;
     public KMBombModule Module;
     public KMBombInfo BombInfo;
     public KMAudio Audio;
@@ -52,15 +53,29 @@ public class PuzzlePanelScript : MonoBehaviour
         new int[6] {9, 10, 11, 13, 14, 15},
         new int[4] {10, 11, 14, 15},
     };
+    private bool[][] patterns = new[]
+    {
+        "oxxoxxxxoxxoxoox",
+        "xooxoxxooxxoxoox",
+        "ooooxxxxooooxxxx",
+        "oxoxoxoxoxoxoxox",
+        "xxxxxooxxooxxxxx",
+        "oxoxxoxooxoxxoxo",
+        "ooxxoooxxoooxxoo",
+        "xxooxxooooxxooxx",
+        "oxxoxxxxxxxxoxxo",
+        "xxxxooxxxxooxxxx",
+        "xxoxoooxxoooxoxx",
+        "xooxoxxooooooxxo",
+    }.Select(str => str.Select(ch => ch == 'o').ToArray()).ToArray();
 
     private List<int> _stageOne = new List<int>();
     private List<int> _stageTwo = new List<int>();
+    private bool[] thisStagePattern;
 
     private int _stageNum = 0;
     private int _movesLeft;
 
-    private int _stageOneCount;
-    private int _stageTwoCount;
     private bool _correct;
 
     private List<string> _flippedSquares = new List<string>();
@@ -73,27 +88,16 @@ public class PuzzlePanelScript : MonoBehaviour
             SquareSels[i].OnInteract += SquarePress(i);
         StageLed.material = StageLedMats[0];
 
-        _stageOneCount = 3;
-        for (int i = 0; i < _stageOneCount;)
-        {
-            int rand = Rnd.Range(0, 16);
-            if (_stageOne.Contains(rand))
-                continue;
-            i++;
-            _stageOne.Add(rand);
-        }
-        ScreenText.text = _stageOneCount.ToString();
-        _movesLeft = _stageOneCount;
+        _stageOne = Enumerable.Range(0, 16).ToArray().Shuffle().Take(STAGE_1_FLIPS).ToList();
+        _stageTwo = Enumerable.Range(0, 16).ToArray().Shuffle().Take(STAGE_2_FLIPS).ToList();
+        
+        ScreenText.text = STAGE_1_FLIPS.ToString();
+        _movesLeft = STAGE_1_FLIPS;
 
-        _stageTwoCount = 4;
-        for (int i = 0; i < _stageTwoCount;)
-        {
-            int rand = Rnd.Range(0, 16);
-            if (_stageTwo.Contains(rand))
-                continue;
-            i++;
-            _stageTwo.Add(rand);
-        }
+        thisStagePattern = patterns.PickRandom();
+        for (int i = 0; i < 16; i++)
+            if (thisStagePattern[i])
+                FlipOverSingle(i, true);
 
         for (int i = 0; i < _stageOne.Count; i++)
         {
@@ -105,7 +109,7 @@ public class PuzzlePanelScript : MonoBehaviour
             if (_isFirstSolFlipped[i])
                 _flippedSquares.Add("ABCD".Substring(i % 4, 1) + "1234".Substring(i / 4, 1));
         }
-        Debug.LogFormat("[Puzzle Panel #{0}] Stage 1: With {1} flips, squares {2} have been flipped over.", _moduleId, _stageOneCount, _flippedSquares.Join(" "));
+        Debug.LogFormat("[Puzzle Panel #{0}] Stage 1: With {1} flips, squares {2} have been flipped over.", _moduleId, STAGE_1_FLIPS, _flippedSquares.Join(" "));
         Debug.LogFormat("[Puzzle Panel #{0}] Possible solution path: {1}", _moduleId, _possibleMoves.Join(", "));
     }
 
@@ -133,7 +137,7 @@ public class PuzzlePanelScript : MonoBehaviour
     private IEnumerator FlipSquare(int sq, float dur, bool isGen)
     {
         _isAnimating = true;
-        Audio.PlaySoundAtTransform(_sounds[Rnd.Range(0, _sounds.Length)], transform);
+        Audio.PlaySoundAtTransform(_sounds.PickRandom(), transform);
         var duration = dur;
         var elapsed = 0f;
         while (elapsed < duration)
@@ -143,32 +147,8 @@ public class PuzzlePanelScript : MonoBehaviour
             yield return null;
             elapsed += Time.deltaTime;
         }
-        for (int i = 0; i < _adjacents[sq].Length; i++)
-        {
-            SquareObjs[_adjacents[sq][i]].transform.localEulerAngles = new Vector3(0f, 0f, 0f);
-            if (!isGen)
-            {
-
-                _isFlippedUp[_adjacents[sq][i]] = !_isFlippedUp[_adjacents[sq][i]];
-                SquareFronts[_adjacents[sq][i]].material = _isFlippedUp[_adjacents[sq][i]] ? SquareMats[1] : SquareMats[0];
-                SquareBacks[_adjacents[sq][i]].material = _isFlippedUp[_adjacents[sq][i]] ? SquareMats[0] : SquareMats[1];
-            }
-            else
-            {
-                if (_stageNum == 0)
-                {
-                    _isFirstSolFlipped[_adjacents[sq][i]] = !_isFirstSolFlipped[_adjacents[sq][i]];
-                    SquareFronts[_adjacents[sq][i]].material = _isFirstSolFlipped[_adjacents[sq][i]] ? SquareMats[1] : SquareMats[0];
-                    SquareBacks[_adjacents[sq][i]].material = _isFirstSolFlipped[_adjacents[sq][i]] ? SquareMats[0] : SquareMats[1];
-                }
-                else
-                {
-                    _isSecondSolFlipped[_adjacents[sq][i]] = !_isSecondSolFlipped[_adjacents[sq][i]];
-                    SquareFronts[_adjacents[sq][i]].material = _isSecondSolFlipped[_adjacents[sq][i]] ? SquareMats[1] : SquareMats[0];
-                    SquareBacks[_adjacents[sq][i]].material = _isSecondSolFlipped[_adjacents[sq][i]] ? SquareMats[0] : SquareMats[1];
-                }
-            }
-        }
+        foreach (int ix in _adjacents[sq])
+            FlipOverSingle(ix, isGen);
         _isAnimating = false;
         _correct = true;
         for (int i = 0; i < 16; i++)
@@ -206,6 +186,33 @@ public class PuzzlePanelScript : MonoBehaviour
             _isAnimating = false;
     }
 
+    private void FlipOverSingle(int ix, bool isGen)
+    {
+        SquareObjs[ix].transform.localEulerAngles = new Vector3(0f, 0f, 0f);
+        if (!isGen)
+        {
+
+            _isFlippedUp[ix] = !_isFlippedUp[ix];
+            SquareFronts[ix].material = _isFlippedUp[ix] ? SquareMats[1] : SquareMats[0];
+            SquareBacks[ix].material = _isFlippedUp[ix] ? SquareMats[0] : SquareMats[1];
+        }
+        else
+        {
+            if (_stageNum == 0)
+            {
+                _isFirstSolFlipped[ix] = !_isFirstSolFlipped[ix];
+                SquareFronts[ix].material = _isFirstSolFlipped[ix] ? SquareMats[1] : SquareMats[0];
+                SquareBacks[ix].material = _isFirstSolFlipped[ix] ? SquareMats[0] : SquareMats[1];
+            }
+            else
+            {
+                _isSecondSolFlipped[ix] = !_isSecondSolFlipped[ix];
+                SquareFronts[ix].material = _isSecondSolFlipped[ix] ? SquareMats[1] : SquareMats[0];
+                SquareBacks[ix].material = _isSecondSolFlipped[ix] ? SquareMats[0] : SquareMats[1];
+            }
+        }
+    }
+
     private void DoStageTwo()
     {
         _movesLeft = 99;
@@ -213,7 +220,7 @@ public class PuzzlePanelScript : MonoBehaviour
         {
             StartCoroutine(FlipSquare(_stageOne[i], 0f, true));
         }
-        _movesLeft = _stageTwoCount;
+        _movesLeft = STAGE_2_FLIPS;
         ScreenText.text = _movesLeft.ToString();
         _stageNum++;
         _isInputting = false;
@@ -232,7 +239,7 @@ public class PuzzlePanelScript : MonoBehaviour
             if (_isSecondSolFlipped[i])
                 _flippedSquares.Add("ABCD".Substring(i % 4, 1) + "1234".Substring(i / 4, 1));
         }
-        Debug.LogFormat("Puzzle Panel #{0}] Stage 2: With {1} flips, squares {2} have been flipped over.", _moduleId, _stageTwoCount, _flippedSquares.Join(" "));
+        Debug.LogFormat("Puzzle Panel #{0}] Stage 2: With {1} flips, squares {2} have been flipped over.", _moduleId, STAGE_2_FLIPS, _flippedSquares.Join(" "));
         Debug.LogFormat("[Puzzle Panel #{0}] Possible solution path: {1}", _moduleId, _possibleMoves.Join(", "));
 
         _isAnimating = false;
@@ -284,12 +291,18 @@ public class PuzzlePanelScript : MonoBehaviour
 
             }
         }
-        _movesLeft = solNum == 0 ? _stageOneCount : _stageTwoCount;
+        _movesLeft = solNum == 0 ? STAGE_1_FLIPS : STAGE_2_FLIPS;
         ScreenText.text = _movesLeft.ToString();
         _isInputting = !toSolution;
         _isAnimating = false;
     }
     private readonly string[] CoordNames = { "a1", "b1", "c1", "d1", "a2", "b2", "c2", "d2", "a3", "b3", "c3", "d3", "a4", "b4", "c4", "d4" };
+
+    public void LogGrid( object[] grid, int height, int width, string separator = " ")
+    {
+        for (int row = 0; row < height; row++)
+            Debug.Log("[Puzzle Panel #"+_moduleId+"] " + string.Join(separator, Enumerable.Range(row * height, width).Select(x => grid[x].ToString()).ToArray()));
+    }
 
 #pragma warning disable 0414
     private readonly string TwitchHelpMessage = "Flip over specific tiles with !{0} A1 B2 C3 D4.";
